@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+svg {
+  font: 10px sans-serif;
+}
+
+.caption {
+  font-weight: bold;
+}
+
+.key path {
+  display: none;
+}
+
+.key line {
+  stroke: #000;
+  shape-rendering: crispEdges;
+}
+
+.county-border {
+  fill: none;
+  stroke: #000;
+  stroke-opacity: .4;
+}
+
+.state-border {
+  fill: none;
+  stroke: #000;
+  stroke-opacity: .9;
+}
+    
+.tract-border {
+  fill: none;
+  stroke: #000;
+  stroke-opacity: .4;
+}
+
+</style>
+<title>Indiana Population Density</title>
+<h1 style="text-align:center;">Indiana Population Density</h1>
+<body>
+<div id="option">
+<input name="updateButton" 
+    type="button" 
+    value="Color" 
+    onclick="toggleColor()" />
+</div>
+<div id="option">
+<input name="updateButton" 
+    type="button" 
+    value="State Border" 
+    onclick="toggleSBorder()" />
+</div>
+<div id="option">
+<input name="updateButton" 
+    type="button" 
+    value="Tract Border" 
+    onclick="toggleTBorder()" />
+</div>
+<script src="//d3js.org/d3.v3.min.js"></script>
+<script src="//d3js.org/topojson.v1.min.js"></script>
+<script>
+
+// Toggle variables for color, state line, and tract lines
+var colortoggle = true;
+var sbordertoggle = true;
+var tbordertoggle = true;
+    
+var width = 960,
+    height = 850;
+
+var formatNumber = d3.format(",d");
+
+var projection = d3.geo.mercator()
+    .scale(7800)
+    .translate([width+11270, height+5500]);
+    
+var path = d3.geo.path()
+    .projection(projection);  
+    
+var colorog = d3.scale.threshold()
+    .domain([1, 10, 50, 100, 500, 1000, 2000, 5000])
+    .range(["#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84", "#fc8d59", "#ef6548", 
+            "#d7301f", "#b30000", "#7f0000"]);
+    
+var color = d3.scale.threshold()
+            .domain([1, 10, 50, 100, 500, 1000, 2000, 5000])
+            .range(["#E1F5FE","#B3E5FC", "#81D4FA", "#4FC3F7", "#29B6F6", "#03A9F4", 
+                "#039BE5", "#0288D1", "#0277BD"]);
+    
+// A position encoding for the key only.
+var x = d3.scale.linear()
+    .domain([0, 5100])
+    .range([0, 480]);
+
+var xAxis = d3.svg.axis()
+    .scale(x)
+    .orient("bottom")
+    .tickSize(13)
+    .tickValues(colorog.domain())
+    .tickFormat(function(d) { return d >= 100 ? formatNumber(d) : null; });
+
+var svg = d3.select("body").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+var g = svg.append("g")
+    .attr("class", "key")
+    .attr("transform", "translate(440,40)"); 
+
+g.selectAll("rect")
+    .data(colorog.range().map(function(d, i) {
+      return {
+        x0: i ? x(colorog.domain()[i - 1]) : x.range()[0],
+        x1: i < colorog.domain().length ? x(colorog.domain()[i]) : x.range()[1],
+        z: d
+      };
+    }))
+    .enter().append("rect")
+    .attr("height", 8)
+    .attr("x", function(d) { return d.x0; })
+    .attr("width", function(d) { return d.x1 - d.x0; })
+    .style("fill", function(d) { return d.z; });
+    
+g.call(xAxis).append("text")
+    .attr("class", "caption")
+    .attr("y", -6)
+    .text("Population per square mile");
+    
+d3.json("in2obj.json", function(error, in2obj) {
+    if (error) throw error;
+
+    var tracts = topojson.feature(in2obj, in2obj.objects.INtracts);
+
+    // Clip tracts to land.
+    svg.append("defs").append("clipPath")
+        .attr("id", "clip-land")
+        .append("path")
+        .datum(topojson.feature(in2obj, in2obj.objects.counties))
+        .attr("d", path);
+
+    // Group tracts by color for faster rendering.
+    svg.append("g")
+        .attr("id", "tractred")
+        .attr("class", "tract")
+        .attr("clip-path", "url(#clip-land)")
+        .selectAll("path")
+        .data(d3.nest()
+        .key(function(d) { return colorog(d.properties.population / d.properties.area 
+            * 2.58999e6); })
+        .entries(tracts.features.filter(function(d) { return d.properties.area; })))
+        .enter().append("path")
+        .style("fill", function(d) { return d.key; })
+        .attr("d", function(d) { return path({type: "FeatureCollection", features: 
+            d.values}); });
+    
+    svg.append("g")
+        .style("opacity", 0)
+        .attr("id", "tractblu")
+        .attr("class", "tract")
+        .attr("clip-path", "url(#clip-land)")
+        .selectAll("path")
+        .data(d3.nest()
+        .key(function(d) { return color(d.properties.population / d.properties.area 
+            * 2.58999e6); })
+        .entries(tracts.features.filter(function(d) { return d.properties.area; })))
+        .enter().append("path")
+        .style("fill", function(d) { return d.key; })
+        .attr("d", function(d) { return path({type: "FeatureCollection", features: 
+            d.values}); });
+
+    // Draw county borders.
+    svg.append("path")
+            .datum(topojson.mesh(in2obj, in2obj.objects.counties, function(a, b) { 
+                return a !== b; }))
+            .attr("class", "county-border")
+            .attr("d", path);
+    
+    // Draw state border.
+    svg.append("path")
+            .attr("id", "stateborder")
+            .datum(topojson.mesh(in2obj, in2obj.objects.counties, function(a, b) { 
+                return a === b; }))
+            .attr("class", "state-border")
+            .attr("d", path)
+    
+    // tract border id
+    svg.append("path")
+            .attr("id", "tractborder")
+            .datum(topojson.mesh(in2obj, in2obj.objects.INtracts, function(a, b) { 
+                return a !== b; }))
+            .attr("class", "tract-border")
+            .attr("d", path)
+})
+
+function toggleColor() {
+    if(colortoggle == true) {
+        colortoggle = false;
+        svg.selectAll("#tractblu")
+            .style("opacity", 1)
+
+        svg.selectAll("#tractred")
+            .style("opacity", 0)
+        
+        g.selectAll("rect")
+            .data(color.range().map(function(d, i) {
+                return {
+                x0: i ? x(color.domain()[i - 1]) : x.range()[0],
+                x1: i < color.domain().length ? x(color.domain()[i]) : x.range()[1],
+                z: d
+              };
+            }))
+            .style("fill", function(d) { return d.z; });
+    } else {
+        colortoggle = true;
+        svg.selectAll("#tractblu")
+            .style("opacity", 0)
+
+        svg.selectAll("#tractred")
+            .style("opacity", 1)
+        
+        g.selectAll("rect")
+            .data(colorog.range().map(function(d, i) {
+                return {
+                x0: i ? x(colorog.domain()[i - 1]) : x.range()[0],
+                x1: i < colorog.domain().length ? x(colorog.domain()[i]) : x.range()
+                    [1],
+                z: d
+              };
+            }))
+            .style("fill", function(d) { return d.z; });
+    }
+}
+    
+function toggleSBorder() {
+    if(sbordertoggle == true) {
+        sbordertoggle = false;
+        d3.json("in2obj.json", function(error, in2obj) {
+            if (error) throw error;
+            svg.selectAll("#stateborder")
+                .style("opacity", 0);
+        })
+    } else {
+        sbordertoggle = true;
+        d3.json("in2obj.json", function(error, in2obj) {
+            if (error) throw error;
+            svg.selectAll("#stateborder")
+                .style("opacity", 1);
+        })
+    }
+}
+
+function toggleTBorder() {
+    if(tbordertoggle == true) {
+        tbordertoggle = false;
+        d3.json("in2obj.json", function(error, in2obj) {
+            if (error) throw error;
+            svg.selectAll("#tractborder")
+                .style("opacity", 0);
+        })
+    } else {
+        tbordertoggle = true;
+        d3.json("in2obj.json", function(error, in2obj) {
+            if (error) throw error;
+            svg.selectAll("#tractborder")
+                .style("opacity", 1);
+        })
+    }
+}
+    
+d3.select(self.frameElement).style("height", height + "px");
+</script>
+<h4>Created By Mengguang (Jin) Zou</h4>  
+<h4>Description: Population density map for state of Indiana. Includes buttons for 
+    toggling color scheme, tract border, and state border.</h4>  
+<h4>Instructor: Suresh Lodha</h4>
+<h4>CMPS 165: Data Programming for Visualization</h4>
+<h4>Fall 2016</h4>
+<h4>Files Submitted:</h4>
+<ul>
+  <li>inPopDensity.html</li>
+  <li>in2obj.json</li>
+</ul>
